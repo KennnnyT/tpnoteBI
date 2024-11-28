@@ -206,37 +206,40 @@ elif selected_page == "Étape B : Analyse des stations Carrefour":
         delaunay = Delaunay(points)
         for simplex in delaunay.simplices:
             triangle = [coordinates[i] for i in simplex]
+            distance = sum(geodesic(triangle[i], triangle[(i + 1) % 3]).km for i in range(3))
             folium.Polygon(
                 locations=triangle,
                 color="purple",
                 fill=True,
                 fill_opacity=0.2,
-                popup="Triangle Delaunay",
+                popup=f"Distance : {distance:.2f} km",
             ).add_to(m)
 
     st_folium(m, width=1200)
 
-    # Tableau comparatif
-    st.subheader("📋 Tableau de Comparaison des Prix")
+    # Tableaux comparatifs pour chaque carburant
+    st.subheader("📋 Tableaux de Comparaison des Prix par Carburant")
     if not competitor_df.empty:
-        carrefour_prices = pd.DataFrame({
-            'Enseigne': ['Carrefour'],
-            'Adresse': [station_data['Adresse']],
-            **{fuel: [station_data[fuel]] for fuel in carburants}
-        })
+        for carburant in carburants:
+            st.markdown(f"### {carburant}")
+            carrefour_prices = pd.DataFrame({
+                'Enseigne': ['Carrefour'],
+                'Adresse': [station_data['Adresse']],
+                'Prix': [station_data[carburant]]
+            })
 
-        competitor_prices = competitor_df[['Enseignes', 'Adresse'] + carburants].copy()
-        competitor_prices.rename(columns={'Enseignes': 'Enseigne'}, inplace=True)
+            competitor_prices = competitor_df[['Enseignes', 'Adresse', carburant]].copy()
+            competitor_prices.rename(columns={'Enseignes': 'Enseigne', carburant: 'Prix'}, inplace=True)
 
-        full_table = pd.concat([carrefour_prices, competitor_prices], ignore_index=True)
-        full_table.sort_values(by='Gazole', inplace=True)
+            full_table = pd.concat([carrefour_prices, competitor_prices], ignore_index=True)
+            full_table.sort_values(by='Prix', inplace=True)
 
-        def highlight_carrefour(row):
-            if row['Enseigne'] == 'Carrefour':
-                return ['background-color: lightgreen'] * len(row)
-            return [''] * len(row)
+            def highlight_carrefour(row):
+                if row['Enseigne'] == 'Carrefour':
+                    return ['background-color: lightgreen'] * len(row)
+                return [''] * len(row)
 
-        st.dataframe(full_table.style.apply(highlight_carrefour, axis=1))
+            st.dataframe(full_table.style.apply(highlight_carrefour, axis=1))
     else:
         st.write("Aucune station concurrente trouvée dans un rayon de 10 km.")
 
@@ -318,7 +321,43 @@ elif selected_page == "Étape B : Analyse des stations Carrefour":
         st.plotly_chart(fig)
     else:
         st.warning(f"Aucune donnée disponible pour le Carrefour_ID : {selected_carrefour_id}")
+        # SECTION 5 : Comparaison par Enseignes
+        st.subheader("📊 Comparaison par Enseignes")
 
+        # Charger les données de comparaison
+        comparaison_data = pd.read_csv("./data/comparaison_prix_carrefour.csv")
+
+        # Ajouter la colonne "Group" en fusionnant avec les autres CSV
+        carrefour_group = carrefour_data[['ID', 'Enseignes']].rename(columns={'ID': 'Carrefour_ID'})
+        comparaison_data = comparaison_data.merge(carrefour_group, on='Carrefour_ID', how='left')
+
+        # Liste des enseignes pour comparaison
+        enseigne_comparison_list = comparaison_data['Enseignes'].unique()
+        selected_enseigne_comparison = st.selectbox("📍 Sélectionnez une enseigne pour comparaison :", enseigne_comparison_list)
+
+        # Filtrer les données par enseigne sélectionnée
+        filtered_comparaison_enseigne = comparaison_data[comparaison_data['Enseignes'] == selected_enseigne_comparison]
+
+        if not filtered_comparaison_enseigne.empty:
+            st.dataframe(filtered_comparaison_enseigne)
+
+            fig = px.bar(
+                filtered_comparaison_enseigne,
+                x='Produit',
+                y=['Concurrentes_Inf', 'Concurrentes_Sup', 'Concurrentes_Egaux'],
+                barmode='group',
+                title=f"Comparaison des Concurrents pour l'enseigne : {selected_enseigne_comparison}",
+                labels={'value': 'Nombre de stations', 'variable': 'Type de concurrents'}
+            )
+            fig.update_layout(
+                xaxis_title="Produit",
+                yaxis_title="Nombre de stations",
+                title_font_size=16,
+                legend_title_text="Type de Concurrents"
+            )
+            st.plotly_chart(fig)
+        else:
+            st.warning(f"Aucune donnée disponible pour l'enseigne : {selected_enseigne_comparison}")
     
 
 
